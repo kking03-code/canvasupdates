@@ -21,6 +21,27 @@ const commands = [
     .setName('assignments')
     .setDescription('List all tracked assignments, soonest first'),
   new SlashCommandBuilder()
+    .setName('setzoomlink')
+    .setDescription('Save or update the Zoom link for a course')
+    .addStringOption((opt) =>
+      opt.setName('course').setDescription('Course name/code, e.g. CS101').setRequired(true)
+    )
+    .addStringOption((opt) =>
+      opt.setName('link').setDescription('The Zoom meeting URL').setRequired(true)
+    ),
+  new SlashCommandBuilder()
+    .setName('zoomlink')
+    .setDescription('Get the Zoom link for a course (omit course to see all)')
+    .addStringOption((opt) =>
+      opt.setName('course').setDescription('Course name/code, e.g. CS101').setRequired(false)
+    ),
+  new SlashCommandBuilder()
+    .setName('removezoomlink')
+    .setDescription('Remove a saved Zoom link for a course')
+    .addStringOption((opt) =>
+      opt.setName('course').setDescription('Course name/code, e.g. CS101').setRequired(true)
+    ),
+  new SlashCommandBuilder()
     .setName('syncnow')
     .setDescription('Manually trigger a sync of upcoming assignments from Canvas'),
   new SlashCommandBuilder()

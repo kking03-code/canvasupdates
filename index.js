@@ -3,6 +3,7 @@ const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
 const { addAssignment, removeAssignment, loadAssignments } = require('./storage');
 const { scheduleReminders } = require('./reminders');
 const { isCanvasConfigured, syncCanvasAssignments, scheduleCanvasSync } = require('./canvas');
+const { setZoomLink, getZoomLink, removeZoomLink, listZoomLinks } = require('./zoomlinks');
 
 const {
   DISCORD_TOKEN,
@@ -142,6 +143,76 @@ client.on('interactionCreate', async (interaction) => {
         );
 
       await interaction.reply({ embeds: [embed] });
+    }
+
+    if (interaction.commandName === 'setzoomlink') {
+      const course = interaction.options.getString('course', true);
+      const link = interaction.options.getString('link', true);
+
+      let url;
+      try {
+        url = new URL(link);
+      } catch {
+        await interaction.reply({
+          content: 'That doesn\'t look like a valid URL. Paste the full link, starting with `https://`.',
+          ephemeral: true,
+        });
+        return;
+      }
+      if (!/zoom\.us$/i.test(url.hostname) && !url.hostname.toLowerCase().endsWith('.zoom.us')) {
+        await interaction.reply({
+          content: `Heads up — that URL's domain is \`${url.hostname}\`, not a zoom.us link. Saving it anyway in case that's intentional (e.g. a custom Zoom domain).`,
+        });
+      }
+
+      const saved = setZoomLink(course, url.toString());
+      await interaction.reply(`✅ Saved Zoom link for **${saved.course}**.`);
+    }
+
+    if (interaction.commandName === 'zoomlink') {
+      const course = interaction.options.getString('course');
+
+      if (course) {
+        const entry = getZoomLink(course);
+        if (!entry) {
+          await interaction.reply({
+            content: `No Zoom link saved for **${course}** yet. Add one with \`/setzoomlink\`.`,
+            ephemeral: true,
+          });
+          return;
+        }
+        await interaction.reply(`🔗 **${entry.course}** Zoom link: ${entry.url}`);
+        return;
+      }
+
+      const all = listZoomLinks();
+      if (all.length === 0) {
+        await interaction.reply({
+          content: 'No Zoom links saved yet. Add one with `/setzoomlink`.',
+          ephemeral: true,
+        });
+        return;
+      }
+
+      const embed = new EmbedBuilder()
+        .setTitle('🔗 Zoom Links')
+        .setColor(0x2d8cff)
+        .setDescription(all.map((e) => `**${e.course}**: ${e.url}`).join('\n'));
+
+      await interaction.reply({ embeds: [embed] });
+    }
+
+    if (interaction.commandName === 'removezoomlink') {
+      const course = interaction.options.getString('course', true);
+      const removed = removeZoomLink(course);
+      if (!removed) {
+        await interaction.reply({
+          content: `No Zoom link found for **${course}**.`,
+          ephemeral: true,
+        });
+        return;
+      }
+      await interaction.reply(`🗑️ Removed the Zoom link for **${removed.course}**.`);
     }
 
     if (interaction.commandName === 'syncnow') {
