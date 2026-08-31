@@ -4,6 +4,7 @@ const { addAssignment, removeAssignment, loadAssignments } = require('./storage'
 const { scheduleReminders } = require('./reminders');
 const { isCanvasConfigured, syncCanvasAssignments, scheduleCanvasSync } = require('./canvas');
 const { setZoomLink, getZoomLink, removeZoomLink, listZoomLinks } = require('./zoomlinks');
+const { syncAnnouncements, scheduleAnnouncementSync } = require('./announcements');
 
 const {
   DISCORD_TOKEN,
@@ -11,6 +12,8 @@ const {
   REMINDER_CRON,
   REMINDER_WINDOW_DAYS,
   CANVAS_SYNC_CRON,
+  ANNOUNCEMENTS_CHANNEL_ID,
+  ANNOUNCEMENT_SYNC_CRON,
 } = process.env;
 
 if (!DISCORD_TOKEN) {
@@ -81,6 +84,29 @@ client.once('ready', async () => {
       console.error('Initial Canvas sync failed:', err);
     }
     scheduleCanvasSync(CANVAS_SYNC_CRON || '*/30 * * * *');
+
+    const announcementsChannel = ANNOUNCEMENTS_CHANNEL_ID || REMINDER_CHANNEL_ID;
+    if (announcementsChannel) {
+      try {
+        const result = await syncAnnouncements(client, announcementsChannel);
+        if (result.firstRun) {
+          console.log(
+            `Announcement sync: first run, baselined ${result.baseline} existing announcement(s) (nothing posted).`
+          );
+        } else {
+          console.log(`Initial announcement sync: ${result.posted} posted`);
+        }
+        if (result.errors.length) console.error(result.errors);
+      } catch (err) {
+        console.error('Initial announcement sync failed:', err);
+      }
+      scheduleAnnouncementSync(client, {
+        channelId: announcementsChannel,
+        cronExpr: ANNOUNCEMENT_SYNC_CRON || '*/15 * * * *',
+      });
+    } else {
+      console.warn('No REMINDER_CHANNEL_ID/ANNOUNCEMENTS_CHANNEL_ID set; announcement sync disabled.');
+    }
   } else {
     console.log('Canvas not configured (CANVAS_BASE_URL/CANVAS_API_TOKEN unset); skipping sync.');
   }
@@ -215,6 +241,39 @@ client.on('interactionCreate', async (interaction) => {
         return;
       }
       await interaction.reply(`🗑️ Removed the Zoom link for **${removed.course}**.`);
+    }
+
+    if (interaction.commandName === 'checkannouncements') {
+      if (!isCanvasConfigured()) {
+        await interaction.reply({
+          content: 'Canvas isn\'t configured (missing `CANVAS_BASE_URL` / `CANVAS_API_TOKEN` in `.env`).',
+          ephemeral: true,
+        });
+        return;
+      }
+
+      const announcementsChannel = ANNOUNCEMENTS_CHANNEL_ID || REMINDER_CHANNEL_ID;
+      if (!announcementsChannel) {
+        await interaction.reply({
+          content: 'No `REMINDER_CHANNEL_ID` or `ANNOUNCEMENTS_CHANNEL_ID` set, so there\'s nowhere to post new announcements.',
+          ephemeral: true,
+        });
+        return;
+      }
+
+      await interaction.deferReply();
+      const result = await syncAnnouncements(client, announcementsChannel);
+
+      let msg;
+      if (result.firstRun) {
+        msg = `First-time setup: baselined ${result.baseline} existing announcement(s). Nothing posted — future *new* announcements will show up automatically from here on.`;
+      } else {
+        msg = `Posted **${result.posted}** new announcement(s).`;
+      }
+      if (result.errors.length) {
+        msg += `\n⚠️ ${result.errors.length} error(s): ${result.errors.slice(0, 3).join('; ')}`;
+      }
+      await interaction.editReply(msg);
     }
 
     if (interaction.commandName === 'syncnow') {

@@ -42,6 +42,9 @@ const commands = [
       opt.setName('course').setDescription('Course name/code, e.g. CS101').setRequired(true)
     ),
   new SlashCommandBuilder()
+    .setName('checkannouncements')
+    .setDescription('Manually check Canvas for new announcements and post them'),
+  new SlashCommandBuilder()
     .setName('syncnow')
     .setDescription('Manually trigger a sync of upcoming assignments from Canvas'),
   new SlashCommandBuilder()

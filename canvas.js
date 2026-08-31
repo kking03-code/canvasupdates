@@ -155,4 +155,6 @@ module.exports = {
   isCanvasConfigured,
   syncCanvasAssignments,
   scheduleCanvasSync,
+  canvasFetchAll,
+  fetchActiveCourses,
 };
