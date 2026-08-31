@@ -159,14 +159,16 @@ client.on('interactionCreate', async (interaction) => {
         });
         return;
       }
-      if (!/zoom\.us$/i.test(url.hostname) && !url.hostname.toLowerCase().endsWith('.zoom.us')) {
-        await interaction.reply({
-          content: `Heads up — that URL's domain is \`${url.hostname}\`, not a zoom.us link. Saving it anyway in case that's intentional (e.g. a custom Zoom domain).`,
+      const saved = setZoomLink(course, url.toString());
+      const looksLikeZoom =
+        /zoom\.us$/i.test(url.hostname) || url.hostname.toLowerCase().endsWith('.zoom.us');
+
+      await interaction.reply(`✅ Saved Zoom link for **${saved.course}**.`);
+      if (!looksLikeZoom) {
+        await interaction.followUp({
+          content: `Heads up — that URL's domain is \`${url.hostname}\`, not a zoom.us link. Saved anyway in case that's intentional.`,
         });
       }
-
-      const saved = setZoomLink(course, url.toString());
-      await interaction.reply(`✅ Saved Zoom link for **${saved.course}**.`);
     }
 
     if (interaction.commandName === 'zoomlink') {
