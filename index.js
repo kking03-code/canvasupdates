@@ -5,6 +5,7 @@ const { scheduleReminders } = require('./reminders');
 const { isCanvasConfigured, syncCanvasAssignments, scheduleCanvasSync } = require('./canvas');
 const { setZoomLink, getZoomLink, removeZoomLink, listZoomLinks } = require('./zoomlinks');
 const { syncAnnouncements, scheduleAnnouncementSync } = require('./announcements');
+const { setSyllabusInfo, getSyllabusInfo, removeSyllabusInfo, listCourses } = require('./syllabus');
 
 const {
   DISCORD_TOKEN,
@@ -241,6 +242,143 @@ client.on('interactionCreate', async (interaction) => {
         return;
       }
       await interaction.reply(`🗑️ Removed the Zoom link for **${removed.course}**.`);
+    }
+
+    if (interaction.commandName === 'setsyllabus') {
+      const course = interaction.options.getString('course', true);
+      const fields = {
+        professor: interaction.options.getString('professor'),
+        email: interaction.options.getString('email'),
+        officeHours: interaction.options.getString('office_hours'),
+        grading: interaction.options.getString('grading'),
+        latePolicy: interaction.options.getString('late_policy'),
+        textbook: interaction.options.getString('textbook'),
+        syllabusUrl: interaction.options.getString('syllabus_url'),
+      };
+
+      const providedCount = Object.values(fields).filter((v) => v).length;
+      if (providedCount === 0) {
+        await interaction.reply({
+          content: 'Provide at least one field to set (professor, email, office_hours, grading, late_policy, textbook, or syllabus_url).',
+          ephemeral: true,
+        });
+        return;
+      }
+
+      const saved = setSyllabusInfo(course, fields);
+      await interaction.reply(`✅ Updated syllabus info for **${saved.course}**. Use \`/syllabus course:${saved.course}\` to view it.`);
+    }
+
+    if (interaction.commandName === 'syllabus') {
+      const course = interaction.options.getString('course');
+      const FIELD_LABELS = {
+        professor: 'Professor',
+        email: 'Contact Email',
+        officeHours: 'Office Hours',
+        grading: 'Grading Breakdown',
+        latePolicy: 'Late Policy',
+        textbook: 'Textbook',
+        syllabusUrl: 'Full Syllabus',
+      };
+
+      if (course) {
+        const entry = getSyllabusInfo(course);
+        if (!entry) {
+          await interaction.reply({
+            content: `No syllabus info saved for **${course}** yet. Add some with \`/setsyllabus\`.`,
+            ephemeral: true,
+          });
+          return;
+        }
+
+        const embed = new EmbedBuilder()
+          .setTitle(`📖 ${entry.course} — Syllabus & FAQ`)
+          .setColor(0x9b59b6);
+
+        for (const [key, label] of Object.entries(FIELD_LABELS)) {
+          if (entry[key]) embed.addFields({ name: label, value: entry[key] });
+        }
+
+        await interaction.reply({ embeds: [embed] });
+        return;
+      }
+
+      const all = listCourses();
+      if (all.length === 0) {
+        await interaction.reply({
+          content: 'No syllabus info saved yet. Add some with `/setsyllabus`.',
+          ephemeral: true,
+        });
+        return;
+      }
+
+      const embed = new EmbedBuilder()
+        .setTitle('📖 Courses with saved syllabus info')
+        .setColor(0x9b59b6)
+        .setDescription(all.map((c) => `**${c.course}**`).join('\n') + '\n\nUse `/syllabus course:<name>` for details.');
+
+      await interaction.reply({ embeds: [embed] });
+    }
+
+    if (interaction.commandName === 'removesyllabus') {
+      const course = interaction.options.getString('course', true);
+      const removed = removeSyllabusInfo(course);
+      if (!removed) {
+        await interaction.reply({
+          content: `No syllabus info found for **${course}**.`,
+          ephemeral: true,
+        });
+        return;
+      }
+      await interaction.reply(`🗑️ Removed syllabus info for **${removed.course}**.`);
+    }
+
+    if (interaction.commandName === 'meetingpoll') {
+      const title = interaction.options.getString('title', true);
+      const optionsRaw = interaction.options.getString('options', true);
+      const allowMultiselect = interaction.options.getBoolean('multiselect') ?? true;
+      const durationHours = interaction.options.getInteger('duration_hours') ?? 24;
+
+      const answers = optionsRaw
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+
+      if (answers.length < 2) {
+        await interaction.reply({
+          content: 'Give at least 2 comma-separated time options, e.g. `Mon 5pm, Tue 6pm, Wed 4pm`.',
+          ephemeral: true,
+        });
+        return;
+      }
+      if (answers.length > 10) {
+        await interaction.reply({
+          content: `Polls support a max of 10 options — you gave ${answers.length}. Trim your list down.`,
+          ephemeral: true,
+        });
+        return;
+      }
+      const tooLong = answers.filter((a) => a.length > 55);
+      if (tooLong.length > 0) {
+        await interaction.reply({
+          content: `These options are too long for a poll answer (max 55 characters each): ${tooLong.join('; ')}`,
+          ephemeral: true,
+        });
+        return;
+      }
+
+      // Ack quickly and ephemerally, then send the actual poll as a normal
+      // channel message — polls can't be attached to an edited/deferred
+      // reply, only to a freshly-sent message.
+      await interaction.reply({ content: '📅 Creating your meeting poll…', ephemeral: true });
+      await interaction.channel.send({
+        poll: {
+          question: { text: title },
+          answers: answers.map((text) => ({ text })),
+          duration: durationHours,
+          allowMultiselect,
+        },
+      });
     }
 
     if (interaction.commandName === 'checkannouncements') {
