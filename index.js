@@ -1,11 +1,12 @@
 require('dotenv').config();
-const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
 const { addAssignment, removeAssignment, loadAssignments } = require('./storage');
 const { scheduleReminders } = require('./reminders');
 const { isCanvasConfigured, syncCanvasAssignments, scheduleCanvasSync } = require('./canvas');
 const { setZoomLink, getZoomLink, removeZoomLink, listZoomLinks } = require('./zoomlinks');
 const { syncAnnouncements, scheduleAnnouncementSync } = require('./announcements');
 const { setSyllabusInfo, getSyllabusInfo, removeSyllabusInfo, listCourses } = require('./syllabus');
+const { addDoc, listDocs, removeDoc, listDocsForRoles } = require('./groupdocs');
 
 const {
   DISCORD_TOKEN,
@@ -333,54 +334,6 @@ client.on('interactionCreate', async (interaction) => {
       await interaction.reply(`🗑️ Removed syllabus info for **${removed.course}**.`);
     }
 
-    if (interaction.commandName === 'meetingpoll') {
-      const title = interaction.options.getString('title', true);
-      const optionsRaw = interaction.options.getString('options', true);
-      const allowMultiselect = interaction.options.getBoolean('multiselect') ?? true;
-      const durationHours = interaction.options.getInteger('duration_hours') ?? 24;
-
-      const answers = optionsRaw
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean);
-
-      if (answers.length < 2) {
-        await interaction.reply({
-          content: 'Give at least 2 comma-separated time options, e.g. `Mon 5pm, Tue 6pm, Wed 4pm`.',
-          ephemeral: true,
-        });
-        return;
-      }
-      if (answers.length > 10) {
-        await interaction.reply({
-          content: `Polls support a max of 10 options — you gave ${answers.length}. Trim your list down.`,
-          ephemeral: true,
-        });
-        return;
-      }
-      const tooLong = answers.filter((a) => a.length > 55);
-      if (tooLong.length > 0) {
-        await interaction.reply({
-          content: `These options are too long for a poll answer (max 55 characters each): ${tooLong.join('; ')}`,
-          ephemeral: true,
-        });
-        return;
-      }
-
-      // Ack quickly and ephemerally, then send the actual poll as a normal
-      // channel message — polls can't be attached to an edited/deferred
-      // reply, only to a freshly-sent message.
-      await interaction.reply({ content: '📅 Creating your meeting poll…', ephemeral: true });
-      await interaction.channel.send({
-        poll: {
-          question: { text: title },
-          answers: answers.map((text) => ({ text })),
-          duration: durationHours,
-          allowMultiselect,
-        },
-      });
-    }
-
     if (interaction.commandName === 'checkannouncements') {
       if (!isCanvasConfigured()) {
         await interaction.reply({
@@ -450,6 +403,136 @@ client.on('interactionCreate', async (interaction) => {
       }
 
       await interaction.reply(`🗑️ Removed **${removed.course}** — ${removed.title}.`);
+    }
+
+    // Members of the target role can manage its docs; server admins can too
+    // (e.g. to fix a mistake), even if they aren't personally in the role.
+    function hasGroupAccess(member, roleId) {
+      if (member.permissions.has(PermissionFlagsBits.Administrator)) return true;
+      return member.roles.cache.has(roleId);
+    }
+
+    if (interaction.commandName === 'adddoc') {
+      const role = interaction.options.getRole('role', true);
+      const name = interaction.options.getString('name', true);
+      const link = interaction.options.getString('link', true);
+
+      if (!hasGroupAccess(interaction.member, role.id)) {
+        await interaction.reply({
+          content: `You need the **${role.name}** role to add documents to that group.`,
+          ephemeral: true,
+        });
+        return;
+      }
+
+      let url;
+      try {
+        url = new URL(link);
+      } catch {
+        await interaction.reply({
+          content: 'That doesn\'t look like a valid URL. Paste the full link, starting with `https://`.',
+          ephemeral: true,
+        });
+        return;
+      }
+
+      const entry = addDoc(role.id, role.name, {
+        name,
+        url: url.toString(),
+        addedBy: interaction.user.tag,
+      });
+
+      await interaction.reply({
+        content: `✅ Added **${entry.name}** to **${role.name}**'s documents. ID: \`${entry.id}\``,
+        ephemeral: true,
+      });
+    }
+
+    if (interaction.commandName === 'docs') {
+      const role = interaction.options.getRole('role');
+
+      if (role) {
+        if (!hasGroupAccess(interaction.member, role.id)) {
+          await interaction.reply({
+            content: `You need the **${role.name}** role to view that group's documents.`,
+            ephemeral: true,
+          });
+          return;
+        }
+
+        const docs = listDocs(role.id);
+        if (docs.length === 0) {
+          await interaction.reply({
+            content: `No documents saved for **${role.name}** yet. Add one with \`/adddoc\`.`,
+            ephemeral: true,
+          });
+          return;
+        }
+
+        const embed = new EmbedBuilder()
+          .setTitle(`🔒 ${role.name} — Documents`)
+          .setColor(role.color || 0x5865f2)
+          .setDescription(
+            docs.map((d) => `**${d.name}**: ${d.url}\n_added by ${d.addedBy} · ID: \`${d.id}\`_`).join('\n\n')
+          );
+
+        await interaction.reply({ embeds: [embed], ephemeral: true });
+        return;
+      }
+
+      // No role given: show every group the invoking member currently belongs to.
+      const memberRoleIds = interaction.member.roles.cache.map((r) => r.id);
+      const groups = listDocsForRoles(memberRoleIds);
+
+      if (groups.length === 0) {
+        await interaction.reply({
+          content: 'No documents found for any of your roles yet. Add one with `/adddoc`.',
+          ephemeral: true,
+        });
+        return;
+      }
+
+      const embed = new EmbedBuilder()
+        .setTitle('🔒 Your Group Documents')
+        .setColor(0x5865f2)
+        .setDescription(
+          groups
+            .map(
+              (g) =>
+                `**${g.roleName}**\n` +
+                g.docs.map((d) => `• **${d.name}**: ${d.url} (\`${d.id}\`)`).join('\n')
+            )
+            .join('\n\n')
+        );
+
+      await interaction.reply({ embeds: [embed], ephemeral: true });
+    }
+
+    if (interaction.commandName === 'removedoc') {
+      const role = interaction.options.getRole('role', true);
+      const id = interaction.options.getString('id', true);
+
+      if (!hasGroupAccess(interaction.member, role.id)) {
+        await interaction.reply({
+          content: `You need the **${role.name}** role to remove documents from that group.`,
+          ephemeral: true,
+        });
+        return;
+      }
+
+      const removed = removeDoc(role.id, id);
+      if (!removed) {
+        await interaction.reply({
+          content: `No document found with ID \`${id}\` in **${role.name}**'s group.`,
+          ephemeral: true,
+        });
+        return;
+      }
+
+      await interaction.reply({
+        content: `🗑️ Removed **${removed.name}** from **${role.name}**'s documents.`,
+        ephemeral: true,
+      });
     }
   } catch (err) {
     console.error('Error handling interaction:', err);

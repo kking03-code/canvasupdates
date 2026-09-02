@@ -67,32 +67,6 @@ const commands = [
       opt.setName('course').setDescription('Course name/code, e.g. CS101').setRequired(true)
     ),
   new SlashCommandBuilder()
-    .setName('meetingpoll')
-    .setDescription('Create a poll to find a meeting time that works for everyone')
-    .addStringOption((opt) =>
-      opt.setName('title').setDescription('Poll question, e.g. "When should we meet this week?"').setRequired(true)
-    )
-    .addStringOption((opt) =>
-      opt
-        .setName('options')
-        .setDescription('Comma-separated time options (2-10), e.g. "Mon 5pm, Tue 6pm, Wed 4pm"')
-        .setRequired(true)
-    )
-    .addBooleanOption((opt) =>
-      opt
-        .setName('multiselect')
-        .setDescription('Allow people to pick more than one time they\'re free? (default: yes)')
-        .setRequired(false)
-    )
-    .addIntegerOption((opt) =>
-      opt
-        .setName('duration_hours')
-        .setDescription('How long the poll stays open, in hours (default: 24, max: 768)')
-        .setMinValue(1)
-        .setMaxValue(768)
-        .setRequired(false)
-    ),
-  new SlashCommandBuilder()
     .setName('checkannouncements')
     .setDescription('Manually check Canvas for new announcements and post them'),
   new SlashCommandBuilder()
@@ -103,6 +77,33 @@ const commands = [
     .setDescription('Remove a tracked assignment by its ID')
     .addStringOption((opt) =>
       opt.setName('id').setDescription('The assignment ID (see /assignments)').setRequired(true)
+    ),
+  new SlashCommandBuilder()
+    .setName('adddoc')
+    .setDescription('Add a document link, visible only to members of the given role')
+    .addRoleOption((opt) =>
+      opt.setName('role').setDescription('The group/role this document belongs to').setRequired(true)
+    )
+    .addStringOption((opt) =>
+      opt.setName('name').setDescription('Short label, e.g. "Slides" or "Shared Doc"').setRequired(true)
+    )
+    .addStringOption((opt) =>
+      opt.setName('link').setDescription('The document URL').setRequired(true)
+    ),
+  new SlashCommandBuilder()
+    .setName('docs')
+    .setDescription('List document links for a role (omit to see all groups you belong to)')
+    .addRoleOption((opt) =>
+      opt.setName('role').setDescription('The group/role to view').setRequired(false)
+    ),
+  new SlashCommandBuilder()
+    .setName('removedoc')
+    .setDescription('Remove a document link from a role\'s group')
+    .addRoleOption((opt) =>
+      opt.setName('role').setDescription('The group/role this document belongs to').setRequired(true)
+    )
+    .addStringOption((opt) =>
+      opt.setName('id').setDescription('The document ID (see /docs)').setRequired(true)
     ),
 ].map((c) => c.toJSON());
 
